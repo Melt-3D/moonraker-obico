@@ -28,7 +28,7 @@ FFMPEG = os.path.join(FFMPEG_DIR, 'run.sh')
 JANUS_WS_PORT = 17730   # Janus needs to use 17730 up to 17750. Hard-coded for now. may need to make it dynamic if the problem of port conflict is too much
 JANUS_ADMIN_WS_PORT = JANUS_WS_PORT + 1
 
-STREAMING_FAILED_EVENT_TEXT = 'Follow the webcam troubleshooting guide to resolve the issue.'
+STREAMING_FAILED_EVENT_TEXT = 'Contact support for help.'
 STREAMING_FAILED_INFO_URL = 'https://obico.io/docs/user-guides/webcam-feed-is-not-showing/#webcam-streaming-failed'
 
 PI_CAM_RESOLUTIONS = {
@@ -190,7 +190,7 @@ class WebcamStreamer:
             'moonraker-obico: Webcam Streaming Failed',
             STREAMING_FAILED_EVENT_TEXT,
             event_class='WARNING',
-            info_url=info_url
+            #info_url=info_url
         )
 
     def report_streaming_failure(self):
