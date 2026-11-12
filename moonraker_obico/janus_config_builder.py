@@ -98,7 +98,48 @@ def find_system_janus_paths():
     return (janus_path, janus_lib_path)
 
 
-def build_janus_jcfg(auth_token):
+# The relay Obico's own cloud runs. It accepts the printer's auth token as both user name and password.
+OBICO_TURN = dict(server='turn.obico.io', port=80, type='tcp')
+
+_TURN_TYPES = ('udp', 'tcp', 'tls')
+_UNSAFE_IN_JCFG_STRING = re.compile(r'["\\\x00-\x1f]')   # Would end the quoted value, or the line it is on
+
+
+def janus_turn_settings(auth_token, turn=None):
+    """
+    The TURN relay Janus should use, as a dict of server, port, type, username, credential.
+
+    `turn` is what the server sent in the linked printer info. Servers other than Obico's cloud
+    run their own relay with their own credentials; a server that sends nothing gets Obico's.
+    Anything that can't be written into janus.jcfg as is falls back to Obico's as well, so that
+    a bad answer from the server never stops Janus from starting.
+    """
+    default = dict(OBICO_TURN, username=auth_token, credential=auth_token)
+    if not turn:
+        return default
+
+    try:
+        settings = dict(
+            server=str(turn['server']).strip(),
+            port=int(turn.get('port') or 3478),
+            type=str(turn.get('type') or 'udp').strip().lower(),
+            username=str(turn['username']),
+            credential=str(turn['credential']),
+        )
+    except (KeyError, TypeError, ValueError):
+        _logger.warning('Ignoring the TURN server sent by the server: incomplete.')
+        return default
+
+    strings = (settings['server'], settings['username'], settings['credential'])
+    if (not settings['server'] or settings['type'] not in _TURN_TYPES or not 0 < settings['port'] < 65536
+            or any(_UNSAFE_IN_JCFG_STRING.search(value) for value in strings)):
+        _logger.warning('Ignoring the TURN server sent by the server: invalid.')
+        return default
+
+    return settings
+
+
+def build_janus_jcfg(auth_token, turn=None):
     janus_jcfg_path = "{etc_dir}/janus.jcfg".format(etc_dir=RUNTIME_JANUS_ETC_DIR)
 
     ld_lib_path = None
@@ -128,12 +169,12 @@ general: {
         admin_secret = "janusoverlord"  # String that all Janus requests must contain
 }}
 nat: {{
-        turn_server = "turn.obico.io"
-        turn_port = 80
-        turn_type = "tcp"
-        turn_user = "{auth_token}"
-        turn_pwd = "{auth_token}"
-""".format(auth_token=auth_token))
+        turn_server = "{server}"
+        turn_port = {port}
+        turn_type = "{type}"
+        turn_user = "{username}"
+        turn_pwd = "{credential}"
+""".format(**janus_turn_settings(auth_token, turn)))
 
         f.write("""
         ice_ignore_list = "vmnet"
@@ -318,7 +359,7 @@ certificates: {{
 """.format(ws_port=ws_port, admin_ws_port=admin_ws_port))
 
 
-def build_janus_config(webcams, printer_auth_token, ws_port, admin_ws_port):
+def build_janus_config(webcams, printer_auth_token, ws_port, admin_ws_port, turn=None):
     if not os.path.exists(RUNTIME_JANUS_ETC_DIR):
         os.makedirs(RUNTIME_JANUS_ETC_DIR)
 
@@ -330,7 +371,7 @@ def build_janus_config(webcams, printer_auth_token, ws_port, admin_ws_port):
         except Exception:
             pass
 
-    (janus_bin_path, ld_lib_path) = build_janus_jcfg(printer_auth_token)
+    (janus_bin_path, ld_lib_path) = build_janus_jcfg(printer_auth_token, turn)
     _logger.info('janus_bin_path: {janus_bin_path} - ld_lib_path: {ld_lib_path}'.format(janus_bin_path=janus_bin_path, ld_lib_path=ld_lib_path))
     build_janus_plugin_streaming_jcfg(webcams)
     build_janus_transport_websocket_jcfg(ws_port, admin_ws_port)
